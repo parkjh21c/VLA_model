@@ -1,0 +1,7 @@
+model:
+  vision_dim: 768
+  lang_dim: 256
+
+train:
+  batch_size: 32
+  lr: 1e-4
