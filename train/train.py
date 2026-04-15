@@ -17,10 +17,12 @@ except ImportError:
 
 
 def collate_fn(batch):
-    images, texts, actions = zip(*batch)
-    images = torch.stack(images)
+    images1, images2, texts, states, actions = zip(*batch)
+    images1 = torch.stack(images1)
+    images2 = torch.stack(images2)
+    states = torch.stack(states)
     actions = torch.stack(actions)
-    return images, list(texts), actions
+    return images1, images2, list(texts), states, actions
 
 
 def build_dataloaders(
@@ -86,12 +88,14 @@ def run_epoch(model, dataloader, optimizer, device, training=True, max_steps=Non
 
     total_loss = 0.0
 
-    for step, (images, texts, actions) in enumerate(dataloader):
-        images = images.to(device)
+    for step, (images1, images2, texts, states, actions) in enumerate(dataloader):
+        image1 = images1.to(device)
+        image2 = images2.to(device)
+        states = states.to(device)
         actions = actions.to(device)
 
         with torch.set_grad_enabled(training):
-            predictions = model(images, texts)
+            predictions = model(image1, image2, texts, states)
             loss = criterion(predictions, actions)
 
         if training:

@@ -13,7 +13,8 @@ class VLADataset(Dataset):
     def __init__(
         self,
         dataset_root="external/boxbrown-mydataset",
-        camera_name="camera1",
+        camera_name1="camera1",
+        camera_name2="camera2",
         transform=None,
         excluded_episode_ids=(0, 271),
         default_prompt="stack the colored blocks",
@@ -21,7 +22,8 @@ class VLADataset(Dataset):
         super().__init__()
 
         self.dataset_root = Path(dataset_root)
-        self.camera_name = camera_name
+        self.camera_name1 = camera_name1
+        self.camera_name2 = camera_name2
         self.transform = transform
         self.excluded_episode_ids = set(excluded_episode_ids)
         self.default_prompt = default_prompt
@@ -72,7 +74,8 @@ class VLADataset(Dataset):
             ignore_index=True,
         )
         episode_df = episode_df[~episode_df["episode_index"].isin(self.excluded_episode_ids)].copy()
-        episode_df["video_path"] = episode_df.apply(self._build_video_path, axis=1)
+        episode_df["video_path1"] = episode_df.apply(lambda row: self._build_video_path(row, self.camera_name1), axis=1)
+        episode_df["video_path2"] = episode_df.apply(lambda row: self._build_video_path(row, self.camera_name2), axis=1)
 
         return episode_df.set_index("episode_index")
 
@@ -90,8 +93,11 @@ class VLADataset(Dataset):
         frame_df["task_text"] = frame_df["task_index"].map(
             lambda task_index: self.tasks.get(int(task_index), self.default_prompt)
         )
-        frame_df["video_path"] = frame_df["episode_index"].map(
-            lambda episode_index: self.episodes.loc[int(episode_index), "video_path"]
+        frame_df["video_path1"] = frame_df["episode_index"].map(
+            lambda episode_index: self.episodes.loc[int(episode_index), "video_path1"]
+        )
+        frame_df["video_path2"] = frame_df["episode_index"].map(
+            lambda episode_index: self.episodes.loc[int(episode_index), "video_path2"]
         )
 
         if frame_df.empty:
@@ -99,13 +105,13 @@ class VLADataset(Dataset):
 
         return frame_df.reset_index(drop=True)
 
-    def _build_video_path(self, row):
-        chunk_column = f"videos/observation.images.{self.camera_name}/chunk_index"
-        file_column = f"videos/observation.images.{self.camera_name}/file_index"
+    def _build_video_path(self, row, camera_name):
+        chunk_column = f"videos/observation.images.{camera_name}/chunk_index"
+        file_column = f"videos/observation.images.{camera_name}/file_index"
 
         if chunk_column not in row or file_column not in row:
             raise KeyError(
-                f"Camera '{self.camera_name}' was not found in episode metadata. "
+                f"Camera '{camera_name}' was not found in episode metadata. "
                 f"Expected columns '{chunk_column}' and '{file_column}'."
             )
 
@@ -114,7 +120,7 @@ class VLADataset(Dataset):
         return (
             self.dataset_root
             / "videos"
-            / f"observation.images.{self.camera_name}"
+            / f"observation.images.{camera_name}"
             / f"chunk-{chunk_index:03d}"
             / f"file-{file_index:03d}.mp4"
         )
@@ -158,11 +164,14 @@ class VLADataset(Dataset):
     def __getitem__(self, idx):
         row = self.frames.iloc[idx]
 
-        image = self._extract_frame_image(row["video_path"], row["timestamp"])
+        image1 = self._extract_frame_image(row["video_path1"], row["timestamp"])
+        image2 = self._extract_frame_image(row["video_path2"], row["timestamp"])
         if self.transform is not None:
-            image = self.transform(image)
+            image1 = self.transform(image1)
+            image2 = self.transform(image2)
 
         text = row["task_text"]
+        state = torch.tensor(row["observation.state"], dtype=torch.float32)
         action = torch.tensor(row["action"], dtype=torch.float32)
 
-        return image, text, action
+        return image1, image2, text, state, action
